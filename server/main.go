@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"github.com/gorilla/websocket"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 )
 
@@ -17,6 +19,9 @@ var upgrader = websocket.Upgrader{
 		return true // allow all connections
 	},
 }
+var Clientset *kubernetes.Clientset
+var config *rest.Config
+var err error
 
 func main() {
 	http.HandleFunc("/logs", handleLogs)
@@ -37,16 +42,38 @@ func handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
-	config, err := clientcmd.BuildConfigFromFlags("", "/home/mohamed/authentication/authentication/client/kind.yaml")
-	if err != nil {
-		log.Fatalf("failed to build config: %v", err)
-	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		log.Fatalf("failed to create clientset: %v", err)
+	kubeconfig := flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+
+	flag.Parse()
+
+	if *kubeconfig != "" {
+		// use the current context in kubeconfig
+		config, err = clientcmd.BuildConfigFromFlags("", *kubeconfig)
+		if err != nil {
+			return err
+		}
+
+		// create the Clientset
+		Clientset, err = kubernetes.NewForConfig(config)
+		if err != nil {
+			return err
+		}
+		// Retrieve the CA certificate data
+
+	} else {
+		// creates the in-cluster config
+		config, err = rest.InClusterConfig()
+		if err != nil {
+			return err
+		}
+		// creates the Clientset
+		Clientset, err = kubernetes.NewForConfig(config)
+		if err != nil {
+			return err
+		}
 	}
 
-	req := clientset.CoreV1().Pods("default").GetLogs(podName, &corev1.PodLogOptions{
+	req := Clientset.CoreV1().Pods("default").GetLogs(podName, &corev1.PodLogOptions{
 		Follow: true,
 	})
 
